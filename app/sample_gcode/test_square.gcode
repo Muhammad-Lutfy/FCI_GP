@@ -1,0 +1,9 @@
+; Simple square test for Spidy Draw
+G0 X20.00 Y20.00
+M3
+G1 X80.00 Y20.00
+G1 X80.00 Y80.00
+G1 X20.00 Y80.00
+G1 X20.00 Y20.00
+M5
+G0 X20.00 Y20.00

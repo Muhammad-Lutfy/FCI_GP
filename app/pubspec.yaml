@@ -1,0 +1,27 @@
+name: spidy_draw
+description: ESP32-only controller app for the Spidy-Draw cable robot with local image-to-G-code conversion.
+publish_to: 'none'
+version: 1.3.0+4
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  file_picker: ^8.1.7
+  http: ^1.2.2
+  image: ^4.3.0
+  image_picker: ^1.1.2
+  shared_preferences: ^2.3.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo.png

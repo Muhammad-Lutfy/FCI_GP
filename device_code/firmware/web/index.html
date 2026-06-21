@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spidy-Draw | Image → Paths → G-code</title>
+  <style>
+    :root{
+      --bg1:#eef4ff;
+      --bg2:#f7f9fc;
+      --surface:#ffffff;
+      --surface-2:#f9fbff;
+      --text:#18243d;
+      --muted:#64748b;
+      --border:#dbe4f0;
+      --primary:#2f6fed;
+      --primary-dark:#1f56c7;
+      --success:#14a44d;
+      --warning:#f59e0b;
+      --danger:#ef6c00;
+      --shadow:0 18px 45px rgba(28, 49, 91, 0.12);
+      --radius:22px;
+    }
+
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0}
+    body{
+      font-family:"Cairo","Segoe UI",Tahoma,Arial,sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(circle at top right, #dce8ff 0, transparent 28%),
+        linear-gradient(135deg, var(--bg1), var(--bg2));
+      min-height:100vh;
+      padding:24px;
+    }
+
+    .container{
+      max-width:1280px;
+      margin:0 auto;
+    }
+
+    .hero{
+      background:linear-gradient(135deg, rgba(47,111,237,.96), rgba(103,80,240,.92));
+      color:#fff;
+      border-radius:28px;
+      padding:28px;
+      box-shadow:var(--shadow);
+      margin-bottom:22px;
+      position:relative;
+      overflow:hidden;
+    }
+
+    .hero::before,
+    .hero::after{
+      content:"";
+      position:absolute;
+      border-radius:50%;
+      background:rgba(255,255,255,.10);
+    }
+    .hero::before{width:220px;height:220px;left:-60px;top:-70px}
+    .hero::after{width:170px;height:170px;left:120px;bottom:-80px}
+
+    .hero-content{position:relative;z-index:1}
+    .hero h1{
+      margin:0 0 10px;
+      font-size:clamp(26px,4vw,40px);
+      line-height:1.2;
+      font-weight:800;
+    }
+    .hero p{
+      margin:0;
+      font-size:16px;
+      line-height:1.8;
+      color:rgba(255,255,255,.92);
+      max-width:840px;
+    }
+
+    .hero-tags{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:18px;
+    }
+    .tag{
+      background:rgba(255,255,255,.14);
+      border:1px solid rgba(255,255,255,.20);
+      color:#fff;
+      padding:10px 14px;
+      border-radius:999px;
+      font-size:13px;
+      backdrop-filter:blur(8px);
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns:1.05fr .95fr;
+      gap:20px;
+    }
+
+    .card{
+      background:var(--surface);
+      border:1px solid rgba(219,228,240,.9);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+
+    .card-header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:18px 20px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(to bottom, #ffffff, #fbfdff);
+    }
+
+    .card-title{
+      margin:0;
+      font-size:20px;
+      font-weight:800;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+
+    .card-subtitle{
+      font-size:13px;
+      color:var(--muted);
+      margin-top:4px;
+    }
+
+    .card-body{padding:20px}
+    .full{grid-column:1/-1}
+
+    .section-note{
+      padding:12px 14px;
+      border-radius:14px;
+      background:#f4f8ff;
+      border:1px solid #dbe7ff;
+      color:#43628f;
+      font-size:14px;
+      margin-bottom:16px;
+    }
+
+    .row{
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0, 1fr));
+      gap:14px;
+      margin-bottom:14px;
+    }
+
+    .row.two{grid-template-columns:repeat(2, minmax(0, 1fr))}
+    .row.actions{grid-template-columns:repeat(2, max-content);justify-content:start}
+    .row.actions-wide{grid-template-columns:repeat(4, max-content);justify-content:start}
+
+    .field label{
+      display:block;
+      font-size:13px;
+      font-weight:700;
+      color:#51627c;
+      margin-bottom:8px;
+    }
+
+    input, select, textarea, button{
+      font:inherit;
+    }
+
+    input, select, textarea{
+      width:100%;
+      border:1px solid #d6e0ee;
+      background:var(--surface-2);
+      color:var(--text);
+      border-radius:14px;
+      padding:12px 14px;
+      outline:none;
+      transition:.2s ease;
+    }
+
+    input:focus, select:focus, textarea:focus{
+      border-color:#83a8ff;
+      background:#fff;
+      box-shadow:0 0 0 4px rgba(47,111,237,.10);
+    }
+
+    textarea{
+      min-height:220px;
+      resize:vertical;
+      font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space:pre;
+      background:#0f172a;
+      color:#e2ebff;
+    }
+
+    button{
+      border:none;
+      border-radius:14px;
+      padding:12px 18px;
+      cursor:pointer;
+      font-weight:800;
+      transition:transform .15s ease, box-shadow .15s ease, opacity .15s ease;
+      box-shadow:0 8px 18px rgba(31, 86, 199, 0.18);
+    }
+
+    button:hover{transform:translateY(-1px)}
+    button:active{transform:translateY(0)}
+
+    .btn-primary{background:linear-gradient(135deg, var(--primary), #4f83ff); color:#fff}
+    .btn-success{background:linear-gradient(135deg, #12a150, #1bc66a); color:#fff}
+    .btn-warning{background:linear-gradient(135deg, #ef6c00, #ff8d2a); color:#fff}
+    .btn-muted{background:linear-gradient(135deg, #5f6e84, #7d8ba1); color:#fff; box-shadow:0 8px 18px rgba(95,110,132,.18)}
+
+    .msg{
+      margin-top:14px;
+      padding:14px 16px;
+      border-radius:16px;
+      background:linear-gradient(135deg, #edf4ff, #f7fbff);
+      border:1px solid #dce8ff;
+      color:#36517e;
+      font-weight:600;
+    }
+
+    .stats{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:12px;
+      margin-top:14px;
+    }
+
+    .stat{
+      padding:14px;
+      border-radius:16px;
+      background:linear-gradient(180deg, #fbfdff, #f4f8ff);
+      border:1px solid #dce5f3;
+    }
+
+    .stat strong{
+      display:block;
+      margin-bottom:8px;
+      font-size:13px;
+      color:#64748b;
+    }
+
+    .stat div{
+      font-size:18px;
+      font-weight:800;
+      color:var(--text);
+      word-break:break-word;
+    }
+
+    .preview-wrap{
+      background:linear-gradient(180deg, #fbfdff, #f6f9ff);
+      border:1px dashed #cfd9ea;
+      border-radius:18px;
+      padding:14px;
+    }
+
+    svg{
+      width:100%;
+      height:440px;
+      border-radius:14px;
+      display:block;
+      background:#fff;
+      border:1px solid #e1e9f5;
+    }
+
+    .toolbar-note{
+      font-size:12px;
+      color:var(--muted);
+      margin-top:10px;
+    }
+
+    .footer-note{
+      margin-top:18px;
+      text-align:center;
+      color:var(--muted);
+      font-size:13px;
+    }
+
+    @media (max-width: 980px){
+      .grid{grid-template-columns:1fr}
+      .row{grid-template-columns:repeat(2, minmax(0,1fr))}
+      .row.actions-wide{grid-template-columns:repeat(2, max-content)}
+    }
+
+    @media (max-width: 620px){
+      body{padding:14px}
+      .hero{padding:20px}
+      .card-body,.card-header{padding:16px}
+      .row,.row.two,.row.actions,.row.actions-wide{grid-template-columns:1fr}
+      .row.actions button,.row.actions-wide button{width:100%}
+      .stats{grid-template-columns:1fr}
+      svg{height:340px}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <section class="hero">
+      <div class="hero-content">
+        <h1>لوحة تحكم Spidy-Draw</h1>
+        <p>
+          واجهة موحدة لتحويل الصورة إلى مسارات نظيفة، ثم توليد <span dir="ltr">G-code</span> ورفع الملفات إلى جهاز
+          <span dir="ltr">ESP32</span> بسهولة، مع معاينة واضحة وإحصائيات مفصلة أثناء الشغل.
+        </p>
+        <div class="hero-tags">
+          <span class="tag">Image Processing</span>
+          <span class="tag">Path Preview</span>
+          <span class="tag">G-code Generation</span>
+          <span class="tag">ESP32 Upload</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">🖼️ 1) معالجة الصورة</h2>
+            <div class="card-subtitle">ارفع الصورة واضبط الإعدادات لاستخراج المسارات بشكل مناسب.</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="section-note">ابدأ برفع صورة مناسبة، ثم اختر الإعدادات أو وضع المعالجة الملائم قبل الضغط على «معالجة الصورة».</div>
+
+          <div class="row two">
+            <div class="field">
+              <label for="image">ملف الصورة</label>
+              <input type="file" id="image" accept="image/*">
+            </div>
+            <div class="field">
+              <label for="preset">Preset</label>
+              <select id="preset">
+                <option value="">افتراضي</option>
+                <option value="logo">Logo</option>
+                <option value="signature">Signature</option>
+                <option value="outline">Outline</option>
+                <option value="fine-art">Fine Art</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="threshold">Threshold</label>
+              <input id="threshold" type="number" value="127">
+            </div>
+            <div class="field">
+              <label for="simplify">Simplify</label>
+              <input id="simplify" type="number" step="0.1" value="0.8">
+            </div>
+            <div class="field">
+              <label for="minlen">Min path mm</label>
+              <input id="minlen" type="number" step="0.1" value="1.0">
+            </div>
+            <div class="field">
+              <label for="minarea">Min area px</label>
+              <input id="minarea" type="number" step="1" value="8">
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="ww">Workspace W mm</label>
+              <input id="ww" type="number" value="210">
+            </div>
+            <div class="field">
+              <label for="wh">Workspace H mm</label>
+              <input id="wh" type="number" value="297">
+            </div>
+            <div class="field">
+              <label for="pw">Processing px</label>
+              <input id="pw" type="number" value="512">
+            </div>
+            <div class="field">
+              <label for="invert">Invert</label>
+              <select id="invert">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row actions">
+            <button class="btn-primary" id="processBtn">معالجة الصورة</button>
+            <button class="btn-muted" id="validateBtn">فحص المسارات</button>
+          </div>
+
+          <div id="message" class="msg">جاهز للعمل.</div>
+          <div class="stats" id="stats"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">👁️ 2) Preview</h2>
+            <div class="card-subtitle">معاينة المسارات الناتجة قبل توليد الـ G-code.</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="preview-wrap">
+            <svg id="preview" viewBox="0 0 400 400">
+              <rect width="400" height="400" fill="white"></rect>
+              <text x="200" y="200" text-anchor="middle" fill="#94a3b8" font-size="16">لا يوجد Preview بعد</text>
+            </svg>
+          </div>
+          <div class="toolbar-note">الألوان المختلفة توضح المسارات المستخرجة، والنقطة الخضراء هي البداية والحمراء هي النهاية.</div>
+        </div>
+      </section>
+
+      <section class="card full">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">⚙️ 3) توليد G-code ورفعه</h2>
+            <div class="card-subtitle">ولّد الملف، راجعه، ثم ارفعه إلى ESP32 أو نزّله على جهازك.</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="field">
+              <label for="margin">Safe margin</label>
+              <input id="margin" type="number" step="0.5" value="5">
+            </div>
+            <div class="field">
+              <label for="maxcmd">Max commands</label>
+              <input id="maxcmd" type="number" value="8000">
+            </div>
+            <div class="field" style="grid-column:span 2">
+              <label for="esp">ESP URL</label>
+              <input id="esp" type="text" placeholder="http://192.168.4.1">
+            </div>
+          </div>
+
+          <div class="row actions-wide">
+            <button class="btn-success" id="gcodeBtn">توليد G-code</button>
+            <button class="btn-warning" id="uploadBtn">رفع فقط إلى ESP</button>
+            <button class="btn-primary" id="runBtn">رفع وتشغيل</button>
+            <button class="btn-muted" id="downloadBtn">تنزيل G-code</button>
+          </div>
+
+          <div id="gstats" class="stats"></div>
+          <div style="margin-top:16px" class="field">
+            <label for="gcodeText">محتوى G-code</label>
+            <textarea id="gcodeText" readonly></textarea>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="footer-note">Spidy-Draw Interface — نسخة محسنة للعرض والتنظيم</div>
+  </div>
+
+  <script>
+    let lastPreview = null, lastGcode = [];
+
+    function setMsg(t){
+      document.getElementById('message').textContent = t;
+    }
+
+    function formData(){
+      const fd = new FormData();
+      const f = document.getElementById('image').files[0];
+      if(!f) throw new Error('اختر صورة أولا');
+      fd.append('image', f);
+
+      const fields = {
+        preset:'preset',
+        threshold_value:'threshold',
+        simplify_tolerance:'simplify',
+        min_path_length:'minlen',
+        min_area_px:'minarea',
+        workspace_width_mm:'ww',
+        workspace_height_mm:'wh',
+        processing_width_px:'pw',
+        invert:'invert'
+      };
+
+      for(const [k,id] of Object.entries(fields)){
+        fd.append(k, document.getElementById(id).value);
+      }
+      return fd;
+    }
+
+    async function processImage(){
+      try{
+        setMsg('جارٍ معالجة الصورة...');
+        const res = await fetch('/api/process-image', {method:'POST', body:formData()});
+        const data = await res.json();
+        if(!data.success) throw new Error(data.error || 'Processing failed');
+        renderStats(data.data);
+        await loadPreview();
+        setMsg(data.message || 'تمت المعالجة بنجاح');
+      }catch(e){
+        setMsg('خطأ: ' + e.message);
+      }
+    }
+
+    async function loadPreview(){
+      const res = await fetch('/api/preview');
+      const data = await res.json();
+      if(!data.success) throw new Error(data.error || 'Preview failed');
+      lastPreview = data.data;
+      renderPreview(data.data);
+    }
+
+    function renderStats(d){
+      const s = document.getElementById('stats');
+      s.innerHTML = '';
+      const items = [
+        ['عدد المسارات', d.path_count],
+        ['عدد النقاط', d.total_points],
+        ['الطول الكلي (mm)', d.total_length_mm],
+        ['المرفوض', d.rejected_contours],
+        ['حدود X', `${d.bounds.minX} → ${d.bounds.maxX}`],
+        ['حدود Y', `${d.bounds.minY} → ${d.bounds.maxY}`]
+      ];
+
+      for(const [k,v] of items){
+        const el = document.createElement('div');
+        el.className = 'stat';
+        el.innerHTML = `<strong>${k}</strong><div>${v}</div>`;
+        s.appendChild(el);
+      }
+    }
+
+    function renderPreview(d){
+      const svg = document.getElementById('preview');
+      const bounds = d.bounds;
+      const minX = bounds.minX, maxX = bounds.maxX, minY = bounds.minY, maxY = bounds.maxY;
+      const w = Math.max(maxX - minX, 1);
+      const h = Math.max(maxY - minY, 1);
+      const pad = 20;
+      const scale = Math.min((400 - 2 * pad) / w, (400 - 2 * pad) / h);
+
+      let out = `<rect width="400" height="400" fill="white"/>`;
+
+      (d.svg_paths || []).forEach((p,i) => {
+        const color = ['#2563eb','#0f9d58','#ef6c00','#d81b60'][i % 4];
+        const pts = [];
+        const tokens = p.d.split(/[MLZ ]+/).filter(Boolean);
+
+        tokens.forEach(tok => {
+          const [x,y] = tok.split(',').map(Number);
+          if(!isNaN(x) && !isNaN(y)){
+            const sx = pad + (x - minX) * scale;
+            const sy = 400 - (pad + (y - minY) * scale);
+            pts.push([sx, sy]);
+          }
+        });
+
+        if(!pts.length) return;
+
+        let dstr = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+        for(let i = 1; i < pts.length; i++){
+          dstr += ` L${pts[i][0].toFixed(1)},${pts[i][1].toFixed(1)}`;
+        }
+        if(p.closed) dstr += ' Z';
+
+        out += `<path d="${dstr}" stroke="${color}" stroke-width="1.8" fill="none"/>`;
+        out += `<circle cx="${pts[0][0]}" cy="${pts[0][1]}" r="3.2" fill="green"/>`;
+        out += `<circle cx="${pts[pts.length - 1][0]}" cy="${pts[pts.length - 1][1]}" r="2.8" fill="red"/>`;
+      });
+
+      svg.innerHTML = out;
+    }
+
+    async function validatePaths(){
+      const res = await fetch('/api/validate-paths');
+      const data = await res.json();
+      if(!data.success) return setMsg(data.error || 'فشل فحص المسارات');
+      setMsg(data.data.has_issues ? ('تحذيرات: ' + data.data.issues.join(' | ')) : 'المسارات سليمة');
+    }
+
+    async function genGcode(){
+      const payload = {
+        safe_margin: parseFloat(document.getElementById('margin').value),
+        max_commands: parseInt(document.getElementById('maxcmd').value, 10),
+        optimize: true,
+        min_point_distance_mm: 0.25,
+        min_path_length: parseFloat(document.getElementById('minlen').value)
+      };
+
+      const res = await fetch('/api/generate-gcode', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if(!data.success){
+        setMsg('خطأ: ' + data.error);
+        return;
+      }
+
+      lastGcode = data.data.gcode;
+      document.getElementById('gcodeText').value = lastGcode.join('\n');
+      const gs = document.getElementById('gstats');
+      gs.innerHTML = '';
+
+      Object.entries(data.data.stats).forEach(([k,v]) => {
+        const el = document.createElement('div');
+        el.className = 'stat';
+        el.innerHTML = `<strong>${k}</strong><div>${v}</div>`;
+        gs.appendChild(el);
+      });
+
+      setMsg(data.message || 'تم توليد G-code بنجاح');
+    }
+
+    async function upload(autoExecute){
+      if(!lastGcode.length) return setMsg('ولّد G-code أولاً');
+      const esp = document.getElementById('esp').value.trim();
+      if(!esp) return setMsg('اكتب ESP URL');
+
+      const res = await fetch('/api/upload-to-esp', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({esp_url:esp, gcode:lastGcode, auto_execute:autoExecute})
+      });
+
+      const data = await res.json();
+      setMsg(
+        data.success
+          ? ((data.message || 'تم الرفع') + (data.execute_message ? (' | ' + data.execute_message) : ''))
+          : ('خطأ: ' + data.error)
+      );
+    }
+
+    function downloadGcode(){
+      if(!lastGcode.length) return setMsg('لا يوجد G-code');
+      const blob = new Blob([lastGcode.join('\n')], {type:'text/plain'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'generated_paths.gcode';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    document.getElementById('processBtn').onclick = processImage;
+    document.getElementById('validateBtn').onclick = validatePaths;
+    document.getElementById('gcodeBtn').onclick = genGcode;
+    document.getElementById('uploadBtn').onclick = () => upload(false);
+    document.getElementById('runBtn').onclick = () => upload(true);
+    document.getElementById('downloadBtn').onclick = downloadGcode;
+  </script>
+</body>
+</html>

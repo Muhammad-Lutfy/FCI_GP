@@ -1,0 +1,5 @@
+This is a complete Flutter Android app project package for Spidy Draw.
+Main custom app code is under lib/.
+Android configuration is under android/.
+Assets are under assets/.
+Sample G-code is under sample_gcode/.
