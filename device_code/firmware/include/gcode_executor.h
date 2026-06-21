@@ -65,6 +65,8 @@ private:
     float segmentTargetRawY;
     float segmentTargetX;
     float segmentTargetY;
+    float segmentStartX;
+    float segmentStartY;
     float activeSegmentX;
     float activeSegmentY;
     int segmentCount;

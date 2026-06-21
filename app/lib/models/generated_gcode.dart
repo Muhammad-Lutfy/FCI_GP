@@ -100,7 +100,7 @@ class GeneratedGcode {
 
   String get summary {
     final clipped = truncated ? ' — تم قصه عند الحد الآمن' : '';
-    return '$segmentCount خط رسم / $commandCount أمر / رسم ${usedWidthMm.toStringAsFixed(1)}×${usedHeightMm.toStringAsFixed(1)} mm داخل Safe Area ${safeWidthMm.toStringAsFixed(1)}×${safeHeightMm.toStringAsFixed(1)} mm$clipped';
+    return '$segmentCount Segment / $commandCount أمر / رسم ${usedWidthMm.toStringAsFixed(1)}×${usedHeightMm.toStringAsFixed(1)} mm داخل Safe Area ${safeWidthMm.toStringAsFixed(1)}×${safeHeightMm.toStringAsFixed(1)} mm$clipped';
   }
 
   static double _toDouble(dynamic value) {
@@ -158,9 +158,9 @@ class ImageGcodeSettings {
     return ImageGcodeSettings(
       safeXmm: _toDouble(json['safeXmm'], fallback: 20),
       safeYmm: _toDouble(json['safeYmm'], fallback: 20),
-      safeWidthMm: _toDouble(json['safeWidthMm'], fallback: 160),
-      safeHeightMm: _toDouble(json['safeHeightMm'], fallback: 110),
-      rasterWidthPx: _toInt(json['rasterWidthPx'], fallback: 180),
+      safeWidthMm: _toDouble(json['safeWidthMm'], fallback: 170),
+      safeHeightMm: _toDouble(json['safeHeightMm'], fallback: 257),
+      rasterWidthPx: _toInt(json['rasterWidthPx'], fallback: 220),
       threshold: _toInt(json['threshold'], fallback: 145),
       rowStepPx: _toInt(json['rowStepPx'], fallback: 2),
       minRunPx: _toInt(json['minRunPx'], fallback: 2),

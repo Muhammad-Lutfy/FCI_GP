@@ -38,6 +38,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final _safeYController = TextEditingController();
   final _safeWidthController = TextEditingController();
   final _safeHeightController = TextEditingController();
+  final _previewScrollController = ScrollController();
   Timer? _pollTimer;
   Timer? _manualHoldTimer;
   Timer? _manualStatusTimer;
@@ -50,6 +51,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _manualInFlight = false;
   int? _queuedMoveAngle;
   bool _online = false;
+  bool _isUploaded = false;
+  int _pollFailures = 0;
+  bool _shownGeneratedResetWarning = false;
+  List<String> _gcodeLines = const [];
 
   Uint8List? _imageBytes;
   String _imageName = 'لا توجد صورة';
@@ -62,16 +67,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double _safeYmm = AppConstants.defaultSafeYmm;
   double _safeWidthMm = AppConstants.defaultSafeWidthMm;
   double _safeHeightMm = AppConstants.defaultSafeHeightMm;
-  bool _invertImage = false;
+  bool _invertImage = true;
   bool _generatedFromImage = false;
 
-  List<String> get _gcodeLines => _gcode
-      .replaceAll('\r\n', '\n')
-      .replaceAll('\r', '\n')
-      .split('\n')
-      .map((e) => e.trim())
-      .where((e) => e.isNotEmpty)
-      .toList(growable: false);
 
   @override
   void initState() {
@@ -79,10 +77,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _syncSafeAreaControllers();
     _client = EspApiClient(widget.espUrl);
     _refreshStatus(showErrors: false);
+    _startStatusPolling();
+  }
+
+  void _startStatusPolling() {
+    _pollTimer?.cancel();
     _pollTimer = Timer.periodic(
       const Duration(seconds: AppConstants.statusPollSeconds),
       (_) => _refreshStatus(showErrors: false),
     );
+  }
+
+  void _restartStatusPolling() {
+    _pollFailures = 0;
+    _startStatusPolling();
   }
 
   @override
@@ -94,6 +102,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _safeYController.dispose();
     _safeWidthController.dispose();
     _safeHeightController.dispose();
+    _previewScrollController.dispose();
     _client.dispose();
     super.dispose();
   }
@@ -121,6 +130,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         _status = status;
         _online = true;
+        _pollFailures = 0;
+        if (_pollTimer == null || !_pollTimer!.isActive) {
+          _startStatusPolling();
+        }
         if (showErrors) {
           _lastMessage = 'آخر تحديث: ${DateTime.now().toLocal().toString().substring(11, 19)}';
         }
@@ -129,9 +142,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted) return;
       setState(() {
         _online = false;
-        _lastMessage = 'الاتصال مقطوع';
+        _pollFailures = showErrors ? 0 : _pollFailures + 1;
+        if (!showErrors && _pollFailures >= 3) {
+          _pollTimer?.cancel();
+          _lastMessage = 'Offline - اضغط تحديث لإعادة المحاولة';
+        } else {
+          _lastMessage = 'الاتصال مقطوع';
+        }
       });
-      if (showErrors) _showSnack('مشكلة اتصال: $e', error: true);
+      if (showErrors) {
+        _restartStatusPolling();
+        _showSnack('مشكلة اتصال: $e', error: true);
+      }
     }
   }
 
@@ -159,9 +181,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _imageName = picked.name.isEmpty ? 'صورة مختارة' : picked.name;
         _generated = null;
         if (_generatedFromImage) {
-          _gcode = '';
-          _fileName = 'اختار صورة جديدة - أعد التحويل';
-          _generatedFromImage = false;
+          _setGcodeState(
+            '',
+            fileName: 'اختار صورة جديدة - أعد التحويل',
+            generatedFromImage: false,
+          );
         }
       });
       _showSnack('تم اختيار الصورة. اضغط تحويل إلى G-code.', success: true);
@@ -214,10 +238,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       if (!mounted) return;
       setState(() {
-        _generated = generated;
-        _gcode = generated.gcode;
-        _fileName = 'Generated from $_imageName';
-        _generatedFromImage = true;
+        _setGcodeState(
+          generated.gcode,
+          fileName: 'Generated from $_imageName',
+          generated: generated,
+          generatedFromImage: true,
+        );
         _lastMessage = generated.isEmpty ? 'الصورة لم تنتج خطوط رسم' : generated.summary;
       });
 
@@ -257,10 +283,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final text = utf8.decode(bytes, allowMalformed: true);
     setState(() {
-      _gcode = text;
-      _fileName = file.name;
-      _generated = null;
-      _generatedFromImage = false;
+      _setGcodeState(text, fileName: file.name, generatedFromImage: false);
     });
     _showSnack('تم تحميل الملف: ${file.name}', success: true);
   }
@@ -274,10 +297,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     if (edited == null) return;
     setState(() {
-      _gcode = edited;
-      _fileName = 'نص مكتوب يدويًا';
-      _generated = null;
-      _generatedFromImage = false;
+      _setGcodeState(edited, fileName: 'نص مكتوب يدويًا', generatedFromImage: false);
     });
     _showSnack('تم تحديث نص الـ G-code', success: true);
   }
@@ -293,7 +313,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!ok) return;
     }
 
-    await _runAction(
+    final success = await _runAction(
       loadingText: runAfterUpload ? 'جاري الرفع والتشغيل...' : 'جاري رفع G-code...',
       action: () async {
         final uploadMsg = await _client.uploadGcodeText(_gcode);
@@ -304,6 +324,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return uploadMsg;
       },
     );
+    if (success && mounted) {
+      setState(() {
+        _isUploaded = true;
+      });
+    }
   }
 
   Future<void> _executeOnly() async {
@@ -411,12 +436,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Future<void> _runAction({
+  Future<bool> _runAction({
     required String loadingText,
     required Future<String> Function() action,
     bool danger = false,
   }) async {
-    if (_isBusy) return;
+    if (_isBusy) return false;
     HapticFeedback.lightImpact();
     setState(() {
       _isBusy = true;
@@ -425,11 +450,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     try {
       final message = await action();
-      if (!mounted) return;
+      if (!mounted) return false;
       _showSnack(message.isEmpty ? 'تم بنجاح' : message, success: !danger);
       await _refreshStatus(showErrors: false);
+      return true;
     } on Object catch (e) {
       _showSnack(e.toString(), error: true);
+      return false;
     } finally {
       if (mounted) setState(() => _isBusy = false);
     }
@@ -486,6 +513,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  List<String> _splitGcodeLines(String value) {
+    return value
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .split('\n')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  void _setGcodeState(
+    String value, {
+    required String fileName,
+    GeneratedGcode? generated,
+    required bool generatedFromImage,
+  }) {
+    _gcode = value;
+    _gcodeLines = _splitGcodeLines(value);
+    _fileName = fileName;
+    _generated = generated;
+    _generatedFromImage = generatedFromImage;
+    _isUploaded = false;
+    if (generatedFromImage) {
+      _shownGeneratedResetWarning = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -523,7 +577,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         actions: [
           IconButton(
             tooltip: 'تحديث',
-            onPressed: () => _refreshStatus(),
+            onPressed: () {
+              _restartStatusPolling();
+              _refreshStatus();
+            },
             icon: const Icon(Icons.refresh_rounded),
           ),
           const SizedBox(width: 8),
@@ -646,7 +703,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               InfoTile(
                 label: 'G-code',
-                value: readyToUpload ? '${_gcodeLines.length} lines' : 'NOT READY',
+                value: readyToUpload ? '$totalLines lines' : 'NOT READY',
                 icon: readyToUpload ? Icons.code_rounded : Icons.pending_actions_rounded,
                 color: readyToUpload ? AppTheme.primary : AppTheme.muted,
               ),
@@ -666,7 +723,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildWorkflowCard() {
     final hasImage = _imageBytes != null;
     final hasGenerated = _generated != null && _gcode.trim().isNotEmpty;
-    final hasUploadedOrRunning = _status.total > 0;
+    final hasUploadedOrRunning = _isUploaded || _status.total > 0;
 
     return SectionCard(
       title: 'Demo Workflow',
@@ -699,7 +756,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               WorkflowStepTile(
                 number: 3,
                 title: 'Generate',
-                subtitle: 'Local raster to G-code',
+                subtitle: 'Local contours to G-code',
                 icon: Icons.auto_fix_high_rounded,
                 active: hasImage && !hasGenerated,
                 done: hasGenerated,
@@ -884,6 +941,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             PrimaryButton(label: 'تحويل + رفع + تشغيل', icon: Icons.rocket_launch_rounded, isBusy: _isBusy, onPressed: _generateUploadRun),
           ],
         ),
+        if (_isBusy && selectedImageBytes != null) ...[
+          const SizedBox(height: 12),
+          _buildProcessingBanner(),
+        ],
         const SizedBox(height: 16),
         _buildConversionSettings(),
         const SizedBox(height: 16),
@@ -917,23 +978,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
         const SizedBox(height: 10),
         const Text(
-          'أفضل نتيجة: استخدم Logo أو Line art أبيض وأسود. لو التفاصيل كتير، قلل تفاصيل الصورة أو زوّد المسافة بين خطوط الرسم عشان الـ ESP يستقبل أوامر أقل.',
+          'أفضل نتيجة: استخدم Logo أو Line art أبيض وأسود. لو التفاصيل كتير، قلل تفاصيل الصورة أو زوّد تبسيط المسار عشان عدد أوامر الـ ESP يقل.',
           style: TextStyle(color: AppTheme.muted, fontSize: 12.5, height: 1.5, fontWeight: FontWeight.w700),
         ),
       ],
     );
   }
 
+  Widget _buildProcessingBanner() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.24)),
+      ),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2.2),
+              ),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'جاري تحليل الصورة واستخراج الـ Contours...',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 10),
+          LinearProgressIndicator(minHeight: 6),
+        ],
+      ),
+    );
+  }
+
   void _updateConversionSetting(VoidCallback updater) {
+    final hadGeneratedGcode = _generatedFromImage && _gcode.trim().isNotEmpty;
     setState(() {
       updater();
       _generated = null;
-      if (_generatedFromImage) {
-        _gcode = '';
-        _fileName = 'تم تغيير إعدادات التحويل - أعد توليد G-code';
-        _generatedFromImage = false;
+      if (hadGeneratedGcode) {
+        _setGcodeState(
+          '',
+          fileName: 'تم تغيير إعدادات التحويل - أعد توليد G-code',
+          generatedFromImage: false,
+        );
       }
     });
+
+    if (hadGeneratedGcode && !_shownGeneratedResetWarning) {
+      _shownGeneratedResetWarning = true;
+      _showSnack('تم مسح الـ G-code القديم بعد تغيير الإعدادات. أعد التحويل قبل الرفع.');
+    }
   }
 
   void _syncSafeAreaControllers() {
@@ -968,16 +1071,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _applyA4PortraitSafeArea() {
-    // A4 is 210x297 mm. These values leave a 15 mm margin on each side.
+    // Same safe area used by the firmware config: A4 210x297 with 20mm margins.
     _updateConversionSetting(() {
-      _setSafeAreaValues(x: 15, y: 15, width: 180, height: 267);
+      _setSafeAreaValues(x: 20, y: 20, width: 170, height: 257);
     });
   }
 
   void _applyA4LandscapeSafeArea() {
-    // A4 landscape is 297x210 mm. These values leave a 15 mm margin on each side.
+    // Landscape-like rectangle that still stays inside the firmware A4 coordinate system.
     _updateConversionSetting(() {
-      _setSafeAreaValues(x: 15, y: 15, width: 267, height: 180);
+      _setSafeAreaValues(x: 20, y: 88, width: 170, height: 120);
     });
   }
 
@@ -992,8 +1095,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_safeWidthMm < 10 || _safeHeightMm < 10) {
       return 'Safe Area صغيرة جدًا. خلي العرض والارتفاع أكبر من 10 mm.';
     }
-    if (_safeXmm + _safeWidthMm > 500 || _safeYmm + _safeHeightMm > 500) {
-      return 'Safe Area كبيرة جدًا. قلل X/Y أو العرض/الارتفاع عشان ما تعديش 500 mm.';
+    if (_safeXmm + _safeWidthMm > 210 || _safeYmm + _safeHeightMm > 297) {
+      return 'Safe Area لازم تكون داخل A4: X ≤ 210mm و Y ≤ 297mm.';
     }
     return null;
   }
@@ -1015,7 +1118,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Text('إعدادات التحويل', style: TextStyle(fontWeight: FontWeight.w900)),
               ),
               FilterChip(
-                label: const Text('Invert'),
+                label: const Text('Black strokes'),
                 selected: _invertImage,
                 onSelected: _isBusy ? null : (value) => _updateConversionSetting(() => _invertImage = value),
               ),
@@ -1043,12 +1146,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             onChanged: (v) => _updateConversionSetting(() => _rasterWidthPx = v),
           ),
           _sliderTile(
-            label: 'المسافة بين خطوط الرسم',
+            label: 'تبسيط المسار',
             value: _rowStepPx,
             min: 1,
             max: 6,
             divisions: 5,
-            display: '${_rowStepPx.round()} px',
+            display: '${(_rowStepPx * 0.4).toStringAsFixed(1)} mm',
             onChanged: (v) => _updateConversionSetting(() => _rowStepPx = v),
           ),
         ],
@@ -1089,44 +1192,88 @@ class _DashboardScreenState extends State<DashboardScreen> {
             style: TextStyle(color: validation == null ? AppTheme.muted : AppTheme.danger, fontSize: 12, height: 1.45),
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _numberField(
-                  label: 'Start X',
-                  controller: _safeXController,
-                  onChanged: (v) => _updateConversionSetting(() => _safeXmm = v.clamp(0, 500).toDouble()),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _numberField(
-                  label: 'Start Y',
-                  controller: _safeYController,
-                  onChanged: (v) => _updateConversionSetting(() => _safeYmm = v.clamp(0, 500).toDouble()),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _numberField(
-                  label: 'Safe Width',
-                  controller: _safeWidthController,
-                  onChanged: (v) => _updateConversionSetting(() => _safeWidthMm = v.clamp(10, 500).toDouble()),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _numberField(
-                  label: 'Safe Height',
-                  controller: _safeHeightController,
-                  onChanged: (v) => _updateConversionSetting(() => _safeHeightMm = v.clamp(10, 500).toDouble()),
-                ),
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final fields = Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _numberField(
+                          label: 'Start X',
+                          controller: _safeXController,
+                          minValue: 0,
+                          maxValue: 210,
+                          onChanged: (v) => _updateConversionSetting(() => _safeXmm = v),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _numberField(
+                          label: 'Start Y',
+                          controller: _safeYController,
+                          minValue: 0,
+                          maxValue: 297,
+                          onChanged: (v) => _updateConversionSetting(() => _safeYmm = v),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _numberField(
+                          label: 'Safe Width',
+                          controller: _safeWidthController,
+                          minValue: 10,
+                          maxValue: 210,
+                          onChanged: (v) => _updateConversionSetting(() => _safeWidthMm = v),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _numberField(
+                          label: 'Safe Height',
+                          controller: _safeHeightController,
+                          minValue: 10,
+                          maxValue: 297,
+                          onChanged: (v) => _updateConversionSetting(() => _safeHeightMm = v),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              );
+
+              final preview = _A4SafeAreaMiniPreview(
+                safeX: _safeXmm,
+                safeY: _safeYmm,
+                safeW: _safeWidthMm,
+                safeH: _safeHeightMm,
+                valid: validation == null,
+              );
+
+              if (constraints.maxWidth >= 560) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: fields),
+                    const SizedBox(width: 14),
+                    preview,
+                  ],
+                );
+              }
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  fields,
+                  const SizedBox(height: 12),
+                  Center(child: preview),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 10),
           Wrap(
@@ -1145,7 +1292,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               ActionChip(
                 avatar: const Icon(Icons.stay_current_landscape_rounded, size: 18),
-                label: const Text('A4 Landscape'),
+                label: const Text('Wide Area'),
                 onPressed: _isBusy ? null : _applyA4LandscapeSafeArea,
               ),
             ],
@@ -1197,6 +1344,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _numberField({
     required String label,
     required TextEditingController controller,
+    required double minValue,
+    required double maxValue,
     required ValueChanged<double> onChanged,
   }) {
     return TextFormField(
@@ -1211,7 +1360,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       onChanged: (text) {
         final parsed = double.tryParse(text.trim());
-        if (parsed != null) onChanged(parsed);
+        if (parsed == null) return;
+        final clamped = parsed.clamp(minValue, maxValue).toDouble();
+        if (clamped != parsed) {
+          final newText = clamped.toStringAsFixed(clamped.truncateToDouble() == clamped ? 0 : 1);
+          controller.value = TextEditingValue(
+            text: newText,
+            selection: TextSelection.collapsed(offset: newText.length),
+          );
+        }
+        onChanged(clamped);
       },
     );
   }
@@ -1253,18 +1411,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                decoration: BoxDecoration(
-                  color: lines > 0 ? AppTheme.success.withValues(alpha: 0.1) : AppTheme.elevated,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: lines > 0 ? AppTheme.success.withValues(alpha: 0.25) : AppTheme.softBorder),
-                ),
-                child: Text(
-                  lines > 0 ? 'READY' : 'EMPTY',
-                  textDirection: TextDirection.ltr,
-                  style: TextStyle(color: lines > 0 ? AppTheme.success : AppTheme.muted, fontSize: 11, fontWeight: FontWeight.w900),
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: lines > 0 ? AppTheme.success.withValues(alpha: 0.1) : AppTheme.elevated,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: lines > 0 ? AppTheme.success.withValues(alpha: 0.25) : AppTheme.softBorder),
+                    ),
+                    child: Text(
+                      lines > 0 ? 'READY' : 'EMPTY',
+                      textDirection: TextDirection.ltr,
+                      style: TextStyle(color: lines > 0 ? AppTheme.success : AppTheme.muted, fontSize: 11, fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                  if (_isUploaded) ...[
+                    const SizedBox(height: 7),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: AppTheme.success.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: AppTheme.success.withValues(alpha: 0.25)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.cloud_done_rounded, size: 14, color: AppTheme.success),
+                          SizedBox(width: 5),
+                          Text('UPLOADED', textDirection: TextDirection.ltr, style: TextStyle(color: AppTheme.success, fontSize: 10.5, fontWeight: FontWeight.w900)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),
@@ -1353,26 +1535,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             child: Column(
               children: [
-                _roundMoveButton(icon: Icons.keyboard_arrow_up_rounded, moveAngle: 90),
+                _movePadButton(icon: Icons.keyboard_arrow_up_rounded, label: 'Y+', moveAngle: 90),
                 const SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _roundMoveButton(icon: Icons.keyboard_arrow_right_rounded, moveAngle: 180),
-                    _roundMoveButton(icon: Icons.my_location_rounded, onPressed: _home, color: AppTheme.secondary),
-                    _roundMoveButton(icon: Icons.keyboard_arrow_left_rounded, moveAngle: 0),
+                    _movePadButton(icon: Icons.keyboard_arrow_right_rounded, label: 'X-', moveAngle: 180),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _roundMoveButton(icon: Icons.my_location_rounded, onPressed: _home, color: AppTheme.secondary),
+                        const SizedBox(height: 5),
+                        const Text('HOME', textDirection: TextDirection.ltr, style: TextStyle(color: AppTheme.secondary, fontSize: 9, fontWeight: FontWeight.w900)),
+                      ],
+                    ),
+                    _movePadButton(icon: Icons.keyboard_arrow_left_rounded, label: 'X+', moveAngle: 0),
                   ],
                 ),
                 const SizedBox(height: 10),
-                _roundMoveButton(icon: Icons.keyboard_arrow_down_rounded, moveAngle: 270),
+                _movePadButton(icon: Icons.keyboard_arrow_down_rounded, label: 'Y-', moveAngle: 270),
               ],
             ),
           ),
         ),
         const SizedBox(height: 12),
         const Text(
-          'ملاحظة: اضغط مطولًا على الأسهم للحركة المستمرة. الاتجاهات حسب زاوية firmware الحالية: 0 يمين، 90 فوق، 180 شمال، 270 تحت.',
+          'اضغط مطولًا للحركة المستمرة. الليبل X+/Y+ يوضح اتجاه الحركة حسب firmware الحالي.',
           style: TextStyle(color: AppTheme.muted, fontSize: 12, height: 1.5, fontWeight: FontWeight.w700),
+        ),
+      ],
+    );
+  }
+
+  Widget _movePadButton({
+    required IconData icon,
+    required String label,
+    required int moveAngle,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _roundMoveButton(icon: icon, moveAngle: moveAngle),
+        const SizedBox(height: 5),
+        Text(
+          label,
+          textDirection: TextDirection.ltr,
+          style: const TextStyle(color: AppTheme.primary, fontSize: 10, fontWeight: FontWeight.w900),
         ),
       ],
     );
@@ -1465,14 +1673,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildPreviewCard() {
-    final lines = _gcodeLines.take(AppConstants.maxPreviewLines).join('\n');
+    final totalLines = _gcodeLines.length;
+    final previewLines = _gcodeLines.take(AppConstants.maxPreviewLines).join('\n');
     return SectionCard(
       title: 'G-code Console Preview',
       subtitle: 'معاينة أول أوامر قبل الرفع — مفيدة في العرض والتصحيح',
       icon: Icons.terminal_rounded,
       accent: AppTheme.success,
       trailing: Text(
-        '${_gcodeLines.length} lines',
+        '$totalLines lines',
         textDirection: TextDirection.ltr,
         style: const TextStyle(color: AppTheme.muted, fontWeight: FontWeight.w900),
       ),
@@ -1485,24 +1694,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
             borderRadius: BorderRadius.circular(22),
             border: Border.all(color: AppTheme.success.withValues(alpha: 0.18)),
           ),
-          child: SingleChildScrollView(
-            child: Text(
-              lines.isEmpty ? 'لا يوجد G-code للمعاينة' : lines,
-              textDirection: TextDirection.ltr,
-              style: const TextStyle(
-                color: Color(0xFFBFF7D3),
-                fontFamily: 'monospace',
-                fontSize: 12.5,
-                height: 1.45,
-                fontWeight: FontWeight.w600,
+          child: Scrollbar(
+            controller: _previewScrollController,
+            thumbVisibility: totalLines > 18,
+            child: SingleChildScrollView(
+              controller: _previewScrollController,
+              child: Text(
+                previewLines.isEmpty ? 'لا يوجد G-code للمعاينة' : previewLines,
+                textDirection: TextDirection.ltr,
+                style: const TextStyle(
+                  color: Color(0xFFBFF7D3),
+                  fontFamily: 'monospace',
+                  fontSize: 12.5,
+                  height: 1.45,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
         ),
-        if (_gcodeLines.length > AppConstants.maxPreviewLines) ...[
+        if (totalLines > AppConstants.maxPreviewLines) ...[
           const SizedBox(height: 8),
           Text(
-            'المعاينة بتعرض أول ${AppConstants.maxPreviewLines} سطر فقط من أصل ${_gcodeLines.length}.',
+            'المعاينة بتعرض أول ${AppConstants.maxPreviewLines} سطر فقط من أصل $totalLines.',
             style: const TextStyle(color: AppTheme.muted, fontSize: 12, fontWeight: FontWeight.w700),
           ),
         ],
@@ -1510,6 +1724,118 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+}
+
+class _A4SafeAreaMiniPreview extends StatelessWidget {
+  const _A4SafeAreaMiniPreview({
+    required this.safeX,
+    required this.safeY,
+    required this.safeW,
+    required this.safeH,
+    required this.valid,
+  });
+
+  final double safeX;
+  final double safeY;
+  final double safeW;
+  final double safeH;
+  final bool valid;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = valid ? AppTheme.secondary : AppTheme.danger;
+    return Container(
+      width: 118,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 78,
+            height: 110,
+            child: CustomPaint(
+              painter: _A4SafeAreaPainter(
+                safeX: safeX,
+                safeY: safeY,
+                safeW: safeW,
+                safeH: safeH,
+                color: color,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            valid ? 'A4 Safe' : 'Out of A4',
+            textDirection: TextDirection.ltr,
+            style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w900),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _A4SafeAreaPainter extends CustomPainter {
+  const _A4SafeAreaPainter({
+    required this.safeX,
+    required this.safeY,
+    required this.safeW,
+    required this.safeH,
+    required this.color,
+  });
+
+  final double safeX;
+  final double safeY;
+  final double safeW;
+  final double safeH;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paperPaint = Paint()..color = Colors.white.withValues(alpha: 0.92);
+    final paperBorder = Paint()
+      ..color = AppTheme.border.withValues(alpha: 0.9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
+    final safePaint = Paint()
+      ..color = color.withValues(alpha: 0.22)
+      ..style = PaintingStyle.fill;
+    final safeBorder = Paint()
+      ..color = color.withValues(alpha: 0.9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    final paperAspect = 210.0 / 297.0;
+    final h = size.height;
+    final w = h * paperAspect;
+    final left = (size.width - w) / 2;
+    final paper = Rect.fromLTWH(left, 0, w, h);
+    canvas.drawRRect(RRect.fromRectAndRadius(paper, const Radius.circular(4)), paperPaint);
+    canvas.drawRRect(RRect.fromRectAndRadius(paper, const Radius.circular(4)), paperBorder);
+
+    final safe = Rect.fromLTWH(
+      paper.left + (safeX / 210.0) * paper.width,
+      paper.top + (safeY / 297.0) * paper.height,
+      (safeW / 210.0) * paper.width,
+      (safeH / 297.0) * paper.height,
+    );
+    canvas.drawRect(safe, safePaint);
+    canvas.drawRect(safe, safeBorder);
+  }
+
+  @override
+  bool shouldRepaint(covariant _A4SafeAreaPainter oldDelegate) {
+    return oldDelegate.safeX != safeX ||
+        oldDelegate.safeY != safeY ||
+        oldDelegate.safeW != safeW ||
+        oldDelegate.safeH != safeH ||
+        oldDelegate.color != color;
+  }
 }
 
 class _EmptyImageStage extends StatelessWidget {

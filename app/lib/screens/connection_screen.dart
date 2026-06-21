@@ -74,6 +74,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       SnackBar(
         content: Text(message),
         backgroundColor: error ? AppTheme.danger : AppTheme.success,
+        action: error
+            ? SnackBarAction(
+                label: 'إعادة المحاولة',
+                textColor: Colors.white,
+                onPressed: _connect,
+              )
+            : null,
       ),
     );
   }

@@ -3,17 +3,17 @@
 ## Confirmed / Suspected Issues
 
 ### 1. Double Transform / Double Fit
-Status: suspected high-priority issue
+Status: fixed in current project package
 
 Description:
-- Python may already transform paths into workspace coordinates
-- firmware may transform them again before execution
+- App/Python-side generation fits paths into final workspace coordinates.
+- Firmware transform is disabled and executes uploaded coordinates directly.
 
 ### 2. Segmentation / Interpolation Bug
-Status: suspected high-priority issue
+Status: fixed in current project package
 
 Description:
-- firmware may compute intermediate segment points incorrectly
+- Firmware stores the start point of each long move and computes intermediate points with explicit linear interpolation.
 
 ### 3. Workspace Mismatch
 Status: suspected high-priority issue

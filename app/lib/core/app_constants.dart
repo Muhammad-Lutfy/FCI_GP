@@ -15,10 +15,10 @@ class AppConstants {
   // from the app before generating G-code.
   static const double defaultSafeXmm = 20;
   static const double defaultSafeYmm = 20;
-  static const double defaultSafeWidthMm = 160;
-  static const double defaultSafeHeightMm = 110;
+  static const double defaultSafeWidthMm = 170;
+  static const double defaultSafeHeightMm = 257;
 
-  static const int defaultRasterWidthPx = 180;
+  static const int defaultRasterWidthPx = 220;
   static const int defaultThreshold = 145;
   static const int defaultRowStepPx = 2;
   static const int defaultMinRunPx = 2;

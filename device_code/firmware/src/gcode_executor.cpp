@@ -24,6 +24,8 @@ GCodeExecutor::GCodeExecutor(MotorController *motors,
       segmentTargetRawY(0.0f),
       segmentTargetX(0.0f),
       segmentTargetY(0.0f),
+      segmentStartX(START_X_MM),
+      segmentStartY(START_Y_MM),
       activeSegmentX(START_X_MM),
       activeSegmentY(START_Y_MM),
       segmentCount(0),
@@ -47,8 +49,11 @@ bool GCodeExecutor::prepareNextSegment(const GCodeCommand& cmd, float& outX, flo
         segmentTargetX = segmentTargetRawX * fitScale + fitOffsetX;
         segmentTargetY = segmentTargetRawY * fitScale + fitOffsetY;
 
-        const float dx = segmentTargetX - robotState->currentX;
-        const float dy = segmentTargetY - robotState->currentY;
+        segmentStartX = robotState->currentX;
+        segmentStartY = robotState->currentY;
+
+        const float dx = segmentTargetX - segmentStartX;
+        const float dy = segmentTargetY - segmentStartY;
         const float dist = sqrtf(dx * dx + dy * dy);
         segmentCount = (dist > MAX_SEGMENT_MM) ? static_cast<int>(ceilf(dist / MAX_SEGMENT_MM)) : 1;
         if (segmentCount < 1) segmentCount = 1;
@@ -62,8 +67,8 @@ bool GCodeExecutor::prepareNextSegment(const GCodeCommand& cmd, float& outX, flo
     }
 
     const float t = static_cast<float>(segmentIndex + 1) / static_cast<float>(segmentCount);
-    outX = robotState->currentX + (segmentTargetX - robotState->currentX) * (1.0f / static_cast<float>(segmentCount - segmentIndex));
-    outY = robotState->currentY + (segmentTargetY - robotState->currentY) * (1.0f / static_cast<float>(segmentCount - segmentIndex));
+    outX = segmentStartX + (segmentTargetX - segmentStartX) * t;
+    outY = segmentStartY + (segmentTargetY - segmentStartY) * t;
     segmentIndex++;
     return true;
 }
@@ -81,6 +86,8 @@ void GCodeExecutor::clearQueue() {
     rawCurrentX = START_X_MM;
     rawCurrentY = START_Y_MM;
     segmentMoveActive = false;
+    segmentStartX = START_X_MM;
+    segmentStartY = START_Y_MM;
     activeSegmentX = START_X_MM;
     activeSegmentY = START_Y_MM;
     segmentCount = 0;
@@ -106,6 +113,8 @@ bool GCodeExecutor::start() {
     robotState->currentX = START_X_MM;
     robotState->currentY = START_Y_MM;
     segmentMoveActive = false;
+    segmentStartX = START_X_MM;
+    segmentStartY = START_Y_MM;
     activeSegmentX = START_X_MM;
     activeSegmentY = START_Y_MM;
     segmentCount = 0;

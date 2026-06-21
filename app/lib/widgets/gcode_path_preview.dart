@@ -26,6 +26,7 @@ class GcodePathPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasPreview = segments.isNotEmpty;
+
     return Container(
       height: 280,
       decoration: BoxDecoration(
@@ -37,79 +38,95 @@ class GcodePathPreview extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(24),
           child: Stack(
-          children: [
-            Positioned.fill(child: CustomPaint(painter: _PreviewBackgroundPainter())),
-            Positioned.fill(
-              child: hasPreview
-                  ? CustomPaint(
-                      painter: _GcodePathPainter(
-                        segments: segments,
-                        safeXmm: safeXmm,
-                        safeYmm: safeYmm,
-                        safeWidthMm: safeWidthMm,
-                        safeHeightMm: safeHeightMm,
-                      ),
-                    )
-                  : Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 58,
-                              height: 58,
-                              decoration: BoxDecoration(
-                                color: AppTheme.primary.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(22),
-                                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.22)),
+            children: [
+              Positioned.fill(child: CustomPaint(painter: _PreviewBackgroundPainter())),
+              Positioned.fill(
+                child: hasPreview
+                    ? LayoutBuilder(
+                        builder: (context, constraints) {
+                          final width = math.max(1.0, constraints.maxWidth);
+                          final height = math.max(1.0, constraints.maxHeight);
+                          return InteractiveViewer(
+                            minScale: 1.0,
+                            maxScale: 6.0,
+                            clipBehavior: Clip.hardEdge,
+                            boundaryMargin: const EdgeInsets.all(80),
+                            child: SizedBox(
+                              width: width,
+                              height: height,
+                              child: CustomPaint(
+                                painter: _GcodePathPainter(
+                                  segments: segments,
+                                  safeXmm: safeXmm,
+                                  safeYmm: safeYmm,
+                                  safeWidthMm: safeWidthMm,
+                                  safeHeightMm: safeHeightMm,
+                                ),
                               ),
-                              child: const Icon(Icons.polyline_rounded, color: AppTheme.primary, size: 30),
                             ),
-                            const SizedBox(height: 12),
-                            Text(
-                              emptyText,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: AppTheme.muted, fontWeight: FontWeight.w800, height: 1.45),
-                            ),
-                          ],
+                          );
+                        },
+                      )
+                    : Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 58,
+                                height: 58,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primary.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(22),
+                                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.22)),
+                                ),
+                                child: const Icon(Icons.polyline_rounded, color: AppTheme.primary, size: 30),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                emptyText,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: AppTheme.muted, fontWeight: FontWeight.w800, height: 1.45),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-            ),
-            Positioned(
-              top: 12,
-              right: 12,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.52),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      hasPreview ? Icons.visibility_rounded : Icons.hourglass_empty_rounded,
-                      size: 15,
-                      color: hasPreview ? AppTheme.success : AppTheme.muted,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      hasPreview ? '${segments.length} segments' : 'Preview',
-                      textDirection: TextDirection.ltr,
-                      style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900),
-                    ),
-                  ],
+              ),
+              Positioned(
+                top: 12,
+                right: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.52),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        hasPreview ? Icons.zoom_out_map_rounded : Icons.hourglass_empty_rounded,
+                        size: 15,
+                        color: hasPreview ? AppTheme.success : AppTheme.muted,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        hasPreview ? '${segments.length} segments • zoom' : 'Preview',
+                        textDirection: TextDirection.ltr,
+                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
   }
 }
 
@@ -276,7 +293,7 @@ class _GcodePathPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GcodePathPainter oldDelegate) {
-    return oldDelegate.segments != segments ||
+    return oldDelegate.segments.length != segments.length ||
         oldDelegate.safeXmm != safeXmm ||
         oldDelegate.safeYmm != safeYmm ||
         oldDelegate.safeWidthMm != safeWidthMm ||
