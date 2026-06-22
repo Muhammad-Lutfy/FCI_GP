@@ -1,0 +1,20 @@
+name: Auto Sync Upstream
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Automatically checks for changes every hour
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Fork
+        uses: actions/checkout@v4
+
+      - name: Sync with Original Repo
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
+        with:
+          target_sync_branch: main
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
+          upstream_sync_branch: main
+          upstream_sync_repo: ahmedabdelaziz228/Spidy-Draw-fin
